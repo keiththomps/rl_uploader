@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.local/
+.test-data/
+dist/
+build/
+*.spec
+.venv/
+.vendor/
