@@ -7,3 +7,5 @@ build/
 *.spec
 .venv/
 .vendor/
+.tools/
+target/

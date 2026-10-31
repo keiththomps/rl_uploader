@@ -1,4 +1,3 @@
 @echo off
-cd /d "%~dp0"
-py -3 -m pip install --target "%~dp0.vendor" -r requirements.txt
-if errorlevel 1 pause
+echo Cloud capture is included in the Rust executable. Open the app and choose Connect Epic.
+call "%~dp0Start RL Uploader.cmd"
