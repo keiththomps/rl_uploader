@@ -1,6 +1,6 @@
 [package]
 name = "rl-uploader"
-version = "0.9.3"
+version = "0.9.4"
 default-run = "rl-uploader"
 edition = "2024"
 rust-version = "1.88"

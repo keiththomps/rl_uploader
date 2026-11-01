@@ -1,20 +1,27 @@
 use std::{env, fs, path::PathBuf, process::Command};
-#[path = "src/icon.rs"]
-mod icon;
 
 fn main() {
-    println!("cargo:rerun-if-changed=src/icon.rs");
+    println!("cargo:rerun-if-changed=assets/app.ico");
     println!("cargo:rerun-if-changed=assets/app.manifest");
     println!("cargo:rerun-if-env-changed=RC");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let ico = out.join("rl-uploader.ico");
-    fs::write(&ico, icon::icon_ico()).unwrap();
-    let manifest =
-        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("assets/app.manifest");
+    let project = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let ico = project.join("assets/app.ico");
     let version = env::var("CARGO_PKG_VERSION").unwrap();
+    let manifest = out.join("rl-uploader.manifest");
+    let template = fs::read_to_string(project.join("assets/app.manifest")).unwrap();
+    assert!(
+        template.contains("@APP_VERSION@"),
+        "Missing manifest version placeholder"
+    );
+    fs::write(
+        &manifest,
+        template.replace("@APP_VERSION@", &format!("{version}.0")),
+    )
+    .unwrap();
     let numeric = format!("{},0", version.replace('.', ","));
     let binary = "rl-uploader";
     let description = "Rocket League replay archive and uploader";

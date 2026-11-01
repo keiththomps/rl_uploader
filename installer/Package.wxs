@@ -4,8 +4,8 @@
            UpgradeCode="47D83B3E-6F24-4A16-A11C-F38CD38A1493" Scope="perUser" InstallerVersion="500">
     <MajorUpgrade DowngradeErrorMessage="A newer version of RL Uploader is installed." />
     <MediaTemplate EmbedCab="yes" />
-    <Icon Id="AppIcon" SourceFile="$(var.AppExe)" />
-    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Icon Id="AppIcon.ico" SourceFile="$(var.AppIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
@@ -20,7 +20,7 @@
             <RegistryValue Root="HKCU" Key="Software\RLUploader" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" KeyPath="yes" />
             <RegistryValue Root="HKCU" Key="Software\RLUploader" Name="Version" Value="$(var.AppVersion)" Type="string" />
             <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="RL Uploader"
-                      Target="[#AppExecutable]" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon"
+                      Target="[#AppExecutable]" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico"
                       Description="Save Rocket League replays and optionally upload to ballchasing" />
             <RemoveFile Id="LegacyReceipt" Name="installed.json" On="install" />
             <RemoveFile Id="LegacyIcon" Name="icon.ico" On="install" />

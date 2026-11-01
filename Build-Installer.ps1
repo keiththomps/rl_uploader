@@ -11,8 +11,13 @@ $version = [regex]::Match($manifest, '(?m)^version = "([^"]+)"').Groups[1].Value
 if (-not $version) { throw 'App version is unavailable.' }
 $app = Join-Path $PSScriptRoot 'target\release\rl-uploader.exe'
 if (-not (Test-Path -LiteralPath $app)) { throw 'Build the release executable first.' }
+if ((Get-Item -LiteralPath $app).VersionInfo.ProductVersion -ne $version) {
+    throw 'The release executable version does not match Cargo.toml. Rebuild before packaging.'
+}
+$appIcon = Join-Path $PSScriptRoot 'assets\app.ico'
+if (-not (Test-Path -LiteralPath $appIcon)) { throw 'The application icon is missing.' }
 $output = Join-Path $PSScriptRoot 'dist\RLUploader-Setup.msi'
 New-Item -ItemType Directory -Path (Split-Path $output) -Force | Out-Null
-& $wix build (Join-Path $PSScriptRoot 'installer\Package.wxs') -arch x64 -d "AppVersion=$version" -d "AppExe=$app" -d "ProjectRoot=$PSScriptRoot" -o $output -intermediateFolder (Join-Path $PSScriptRoot 'target\wix')
+& $wix build (Join-Path $PSScriptRoot 'installer\Package.wxs') -arch x64 -d "AppVersion=$version" -d "AppExe=$app" -d "AppIcon=$appIcon" -d "ProjectRoot=$PSScriptRoot" -o $output -intermediateFolder (Join-Path $PSScriptRoot 'target\wix')
 if ($LASTEXITCODE -ne 0) { throw 'Windows Installer packaging failed.' }
 Write-Output ('Installer: ' + $output)

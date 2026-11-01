@@ -1,6 +1,6 @@
 # Rust implementation notes
 
-The main branch contains the maintained Rust-only app, version 0.9.3. The original
+The main branch contains the maintained Rust-only app, version 0.9.4. The original
 Python baseline remains in git history at `bf37e53`; it is no longer shipped or
 retained as a second executable implementation.
 
@@ -118,15 +118,52 @@ An ordinary file-hash read of the unexecuted release copy was then blocked by
 real-time protection and that copy was quarantined as well. The diagnostic
 command stopped before its planned on-demand scan could run.
 
-Defender also flagged the Windows Installer AppIcon cache. The MSI currently
+Defender also flagged the Windows Installer AppIcon cache. The 0.9.3 MSI
 uses the executable itself as its icon source, so that entry contains another
 copy of the same executable; it is not evidence of another application component.
 The logs do not identify a triggering code path or establish a false positive.
 The earlier clean scans cannot be treated as a current compatibility guarantee.
 
-The app is stopped and automatic saving/uploading is unavailable. All 29 archive
+The app stopped and automatic saving/uploading became unavailable. All 29 archive
 files passed fresh SHA-256 verification and retained completed upload records;
 settings and encrypted credential files remain present. Protection remains
 enabled. No exclusions, allow-list entries, restoration, or replacement build
-were used to bypass the detection. A developer review report is prepared locally;
-nothing has yet been submitted to Microsoft.
+were used to bypass the detection. A developer review report was prepared locally;
+the user requested that it remain local, so nothing was submitted to Microsoft.
+
+## Packaging corrections in 0.9.4
+
+The installer now uses a 4,286-byte ICO asset instead of caching a second copy of
+the executable as its icon. Its size decreased from 17,600,512 to 4,837,376 bytes.
+The shared asset is checked against the runtime icon generator in the existing
+icon test. The embedded application manifest is generated from Cargo's version
+instead of retaining 0.7.2.0. Packaging rejects a release executable whose version
+differs from Cargo.toml.
+
+Formatting, Clippy with warnings denied and all 50 tests passed. Inspection of
+the built PE confirmed manifest version 0.9.4.0 and `asInvoker` permissions;
+inspection of the MSI confirmed the ICO payload and product version 0.9.4.
+Both artifacts passed normal Defender scans with remediation enabled after a
+normal security-intelligence update from 1.463.72.0 to 1.463.76.0. No antivirus
+configuration was weakened. These observations do not identify the cause of the
+0.9.3 detection, and a clean scan is not a guarantee of future classification.
+
+The per-user upgrade preserved the settings, DPAPI credentials and queue byte for
+byte. Installed diagnostics confirmed both credentials were readable, saving and
+uploads enabled, and startup registered. The live app completed a history check
+30 seconds after launch, checking 20 matches with no new replays and retaining
+29 completed upload records.
+
+The same installed process then ran for 604.9 seconds with real-time protection
+enabled and zero new Defender detections. A final normal scan of the installed
+executable reported no threats. All 29 replay archives also passed SHA-256 checks.
+At the end of observation the tray used 18.29 MiB working set and 3.84 MiB private
+memory. A separate 30.017-second sample measured 78.125 ms CPU, or 0.2603% of one
+core. No fresh match was played during this check, so no new upload was required.
+
+The installed executable SHA-256 is
+`150A49FB4CB0F0808B01E517579AEB5805222BF8A26185809B4E821A5EB5F643`.
+The installed MSI icon cache was verified to contain the 4,286-byte ICO. A legacy
+Start-menu shortcut still referred to the prototype's deleted icon file; its
+icon reference was repaired to use the installed asset. The app remains running
+in the tray, with automatic saving, uploads and sign-in startup enabled.

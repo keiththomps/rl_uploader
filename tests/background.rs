@@ -126,6 +126,7 @@ fn native_icon_and_instance_identity_are_deterministic() {
     let ico = desktop::icon_ico();
     assert_eq!(&ico[..6], &[0, 0, 1, 0, 1, 0]);
     assert_eq!(ico.len(), 22 + 40 + 4096 + 128);
+    assert_eq!(ico, include_bytes!("../assets/app.ico"));
     let root = tempfile::tempdir().unwrap();
     let name = desktop::window_name(root.path());
     assert_eq!(name, desktop::window_name(root.path()));

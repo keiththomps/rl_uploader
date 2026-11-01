@@ -3,14 +3,22 @@
 A small Windows tray app that saves your recent Rocket League replays after the
 game closes and optionally uploads them to ballchasing.
 
-## Known Defender issue in 0.9.3
+## Defender compatibility
 
 On November 1, 2026, Microsoft Defender quarantined version 0.9.3 as
 `Trojan:Win32/Bearfoos.A!ml`, despite earlier clean scans. The cause is unresolved;
 a false positive has not been confirmed by Microsoft. Do not restore or allow
 the flagged build or add antivirus exclusions to run it. Saving and uploading
 stop when the executable is quarantined; existing replay archives and settings
-are retained. Developer review is pending submission.
+are retained. No report has been submitted to Microsoft.
+
+Version 0.9.4 replaces a duplicate executable in the installer's icon cache with
+a real ICO file and synchronizes the embedded manifest with the app version.
+Its executable and installer passed normal Defender scans with security
+intelligence 1.463.76.0 on November 1. The installed app completed a live history
+check and ran for ten minutes with real-time protection enabled, no new
+detections, and a clean final scan. These packaging corrections do not prove
+what caused the earlier detection or guarantee future antivirus verdicts.
 
 ## Install and configure
 
