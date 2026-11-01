@@ -105,5 +105,28 @@ The final UI-only 0.9.3 refinement keeps each page's scroll position separate
 and marks unapplied settings in the tab title. It passed formatting and Clippy;
 the prior 50-test runtime suite remains unchanged. Its executable and installer
 passed fresh Defender scans and the installed version was verified. After the
-November 1 reinstall, the app is running in the system tray with after-session
-saving and uploads enabled.
+November 1 reinstall, the app was running in the system tray with after-session
+saving and uploads enabled until the subsequent detection below.
+
+## Defender detection on November 1
+
+At 13:19 America/Indianapolis, Defender quarantined the installed 0.9.3 executable
+as `Trojan:Win32/Bearfoos.A!ml`. Security intelligence was 1.463.72.0 and engine
+1.1.26100.4. The verified executable SHA-256 before quarantine was
+`3818B78E9B82BD268434DD72B637CA49EA2AA72D08B891636C01D1B51DF6F465`.
+An ordinary file-hash read of the unexecuted release copy was then blocked by
+real-time protection and that copy was quarantined as well. The diagnostic
+command stopped before its planned on-demand scan could run.
+
+Defender also flagged the Windows Installer AppIcon cache. The MSI currently
+uses the executable itself as its icon source, so that entry contains another
+copy of the same executable; it is not evidence of another application component.
+The logs do not identify a triggering code path or establish a false positive.
+The earlier clean scans cannot be treated as a current compatibility guarantee.
+
+The app is stopped and automatic saving/uploading is unavailable. All 29 archive
+files passed fresh SHA-256 verification and retained completed upload records;
+settings and encrypted credential files remain present. Protection remains
+enabled. No exclusions, allow-list entries, restoration, or replacement build
+were used to bypass the detection. A developer review report is prepared locally;
+nothing has yet been submitted to Microsoft.

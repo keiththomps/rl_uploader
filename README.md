@@ -3,6 +3,15 @@
 A small Windows tray app that saves your recent Rocket League replays after the
 game closes and optionally uploads them to ballchasing.
 
+## Known Defender issue in 0.9.3
+
+On November 1, 2026, Microsoft Defender quarantined version 0.9.3 as
+`Trojan:Win32/Bearfoos.A!ml`, despite earlier clean scans. The cause is unresolved;
+a false positive has not been confirmed by Microsoft. Do not restore or allow
+the flagged build or add antivirus exclusions to run it. Saving and uploading
+stop when the executable is quarantined; existing replay archives and settings
+are retained. Developer review is pending submission.
+
 ## Install and configure
 
 Run `dist\RLUploader-Setup.msi`, then open **RL Uploader** from Start. The app
