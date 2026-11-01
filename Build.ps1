@@ -21,3 +21,4 @@ if ($Check) {
 & $cargo build --release --locked
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 Write-Output ('Built ' + (Join-Path $PSScriptRoot 'target\release\rl-uploader.exe'))
+& (Join-Path $PSScriptRoot 'Build-Installer.ps1')

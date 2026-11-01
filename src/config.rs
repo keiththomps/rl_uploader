@@ -8,8 +8,7 @@ pub struct Settings {
     pub replay_dir: String,
     pub visibility: String,
     pub cloud_capture: bool,
-    pub capture_mode: String,
-    pub capture_interval_minutes: u32,
+    pub uploads_enabled: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -20,8 +19,7 @@ impl Default for Settings {
                 .into(),
             visibility: "private".into(),
             cloud_capture: false,
-            capture_mode: "after_session".into(),
-            capture_interval_minutes: 15,
+            uploads_enabled: true,
         }
     }
 }
@@ -30,10 +28,7 @@ impl Settings {
         if !Path::new(&self.replay_dir).is_absolute() {
             return Err(Error::new("Choose an absolute replay folder path."));
         }
-        if !["private", "unlisted", "public"].contains(&self.visibility.as_str())
-            || !["after_session", "periodic"].contains(&self.capture_mode.as_str())
-            || ![15, 30].contains(&self.capture_interval_minutes)
-        {
+        if !["private", "unlisted", "public"].contains(&self.visibility.as_str()) {
             return Err(Error::new("Invalid capture settings."));
         }
         Ok(())

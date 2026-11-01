@@ -1,9 +1,9 @@
 use crate::{Result, db_error};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Job {
     pub digest: String,
     pub filename: String,
@@ -30,7 +30,7 @@ fn job(row: &rusqlite::Row<'_>) -> rusqlite::Result<Job> {
         message: row.get(9)?,
     })
 }
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Summary {
     pub counts: BTreeMap<String, u64>,
     pub recent: Vec<Job>,
@@ -179,5 +179,20 @@ impl State {
             blocked: self.get("blocked")?,
             cooldown: self.number("cooldown")?,
         })
+    }
+
+    pub fn next_upload(&self) -> Result<Option<f64>> {
+        if !self.get("blocked")?.is_empty() {
+            return Ok(None);
+        }
+        let next: Option<f64> = self
+            .connection
+            .query_row(
+                "SELECT min(next_try) FROM jobs WHERE status='queued'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?;
+        Ok(next.map(|n| n.max(self.number("cooldown").unwrap_or(0.0))))
     }
 }

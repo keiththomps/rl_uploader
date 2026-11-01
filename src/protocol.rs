@@ -111,6 +111,21 @@ impl EpicAuth {
     pub fn connected(&self) -> bool {
         self.path.exists()
     }
+    /// Validate locally stored credentials without refreshing or contacting Epic.
+    pub fn credentials_ready(&self) -> bool {
+        std::fs::read(&self.path)
+            .ok()
+            .and_then(|raw| platform::dpapi(&raw, false).ok())
+            .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+            .is_some_and(|v| {
+                v["account_id"]
+                    .as_str()
+                    .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+                    && v["refresh_token"]
+                        .as_str()
+                        .is_some_and(|token| !token.is_empty())
+            })
+    }
     fn save(&self, mut value: Value) -> Result<Value> {
         let account = value["account_id"].as_str().unwrap_or_default();
         if account.len() != 32

@@ -1,157 +1,106 @@
-# RL Uploader — Rust
+# RL Uploader
 
-A native Windows app that saves recent Rocket League replays, keeps a durable
-local archive, and optionally uploads them to ballchasing. Automatic saving works
-without a ballchasing token. Choose capture after play or every 15/30 minutes.
+A small Windows tray app that saves your recent Rocket League replays after the
+game closes and optionally uploads them to ballchasing.
 
-The executable includes the UI, cloud client, SQLite queue, TLS proxy and
-certificate support. Python, Hebnix, and OpenSSL installations are not required.
-Windows PowerShell and certutil provide OS routing and certificate integration.
+## Install and configure
 
-**Automatic capture uses an unofficial API. Epic/Psyonix/EAC approval has not
-been verified.** The app does not inject into the game, inspect game memory,
-patch game files, or disable EAC. Periodic mode intercepts one game's TLS hostname
-through a local proxy and requires explicit setup. It remains experimental.
+Run `dist\RLUploader-Setup.msi`, then open **RL Uploader** from Start. The app
+installs for the current Windows user and starts in the tray at sign-in.
 
-## Build and start
+Open **Settings**:
 
-For developers, install the [Rust MSVC toolchain](https://rust-lang.org/tools/install/)
-and Visual Studio C++ Build Tools. A project-local Rust toolchain, when present
-under `.tools/`, is detected automatically; it is not committed.
+1. Connect the Epic account linked to your Steam Rocket League account. The
+   sign-in dialog stays open until you close it, including after a code expires.
+2. Check the replay folder. Redirected Documents and OneDrive folders are supported.
+3. Enable **Save recent replays automatically after Rocket League closes**.
+4. Optionally enable ballchasing uploads and paste an API token. **Test connection**
+   checks the token; **Apply** stores it. Choose Private, Unlisted, or Public for
+   new uploads. Existing queued replays retain their original visibility.
+5. Click **Apply**. Unsaved changes are marked; **Revert** restores saved settings.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Build.ps1 -Check
-```
+**Activity** shows the saved configuration, account and folder status, current
+work, and recent replays. Uploaded replays link to ballchasing. Closing the window
+keeps the lightweight tray process running. Pause/resume and Quit are available
+in the tray menu. Applying settings preserves a paused state.
 
-This runs formatting, static checks, tests and the release build. `Cargo.lock`
-and `rust-toolchain.toml` pin the dependencies and compiler. The release statically
-links the Windows C runtime.
+Saving works without a ballchasing token. Turning uploads off preserves the
+local archive and queue. Uploads resume when enabled with a valid token.
 
-Double-click **Start RL Uploader.cmd** to use this project's existing `.local`
-data folder. The executable is `target\release\rl-uploader.exe`. When run directly
-without `--data-dir`, it uses `%LOCALAPPDATA%\RLUploader` instead.
+## After-session behavior
 
-Close the Python app before launching Rust against its data folder. Settings,
-encrypted credentials, archive, queue, and approved certificate are compatible.
-The Python baseline is preserved on `main` at `bf37e53`; see
-[port details](docs/RUST_PORT.md).
+After Rocket League has been closed for 30 seconds, the app creates its own
+account session, fetches Match History, and closes that connection. It downloads
+available replays into the game's Demos folder, retains a separate archive, and
+queues optional uploads. A successful check runs once per closed-game period;
+another game session or an app restart allows a fresh check. Unavailable replays
+and temporary failures retry with backoff.
 
-## Automatic saving after play
+Match History contains at most the latest **20 matches within 30 days**. A session
+longer than 20 matches can exceed that window. The app also handles manually saved
+replays. Existing local files are excluded initially; choose **Import existing
+local replays** to include them.
 
-1. Confirm the replay folder. The app detects redirected Documents folders,
-   including OneDrive; the normal suffix is `Rocket League\TAGame\Demos`.
-2. Choose **Connect Epic**, open its sign-in link, and enter the displayed device
-   code yourself. Use the Epic account linked to your Steam Rocket League account.
-   The dialog stays open while you sign in and on errors or expiry. **Get a new
-   code** starts a fresh attempt.
-3. Enable automatic replay saving, select **After Rocket League closes**, and
-   choose **Save & start**. Keep the app running while playing.
-4. After the game closes and stays closed for 30 seconds, the app fetches recent
-   Match History, closes its cloud session, saves replays into Demos, archives
-   them, and queues uploads. It retries unavailable replays automatically.
+Replay-file processing and uploads wait while Rocket League is running or its
+process state is unknown. Upload requests and body chunks recheck that state.
+Data already buffered by the network may still drain if the game starts during
+a transfer. Process checks cannot eliminate the race where a game launch occurs
+at the exact instant an outgoing login request starts.
 
-Match History contains at most the latest **20 matches within 30 days**. The
-first capture saves all available recent matches. Long sessions can exceed that
-window before an after-session capture runs. The process check prevents planned
-second logins while playing, but a game launch exactly as a login request is sent
-remains a race. Let an active after-session capture finish before relaunching.
-Unknown process state defers capture.
+The app uses an **unofficial Match History API**. Epic/Psyonix/EAC approval has not
+been verified. It does not intercept game traffic, reuse the game's login,
+modify game files, read game memory, or disable anti-cheat. There is no in-game
+capture mode, listening server, routing helper, or certificate setup.
 
-The app also watches for replays saved manually in game, waiting for five seconds
-of unchanged size and modification time before archiving. Existing local files
-are excluded on first watch; use **Import existing replays** to queue them.
+## Data and startup
 
-## Periodic capture through the game's session
+- App: `%LOCALAPPDATA%\Programs\RLUploader`
+- Settings, encrypted credentials, queue and archive: `%LOCALAPPDATA%\RLUploader`
+- Replay folder: normally `Documents\My Games\Rocket League\TAGame\Demos`
 
-This mode runs every 15 or 30 minutes while the game is open, using the existing
-captured WebSocket session. It never falls back to another account login during
-play. When the game closes, it uses the connected Epic account after the same
-30-second wait. A missing proxy session defers capture rather than logging in.
+Credentials use Windows DPAPI. Keep the data folder private. Downloads use
+validated destinations; replay writes are atomic and do not replace a different
+existing replay. The durable queue deduplicates replays, respects upload quotas,
+and retains local files after upload errors.
 
-1. Close Rocket League and choose **Set up periodic capture**.
-2. Review the certificate fingerprint and expiry before installing trust. The
-   current-user CA is constrained to `ws.rlpp.psynet.gg` and expires in 30 days.
-   Its signing key is discarded; only the leaf key is stored, protected by DPAPI.
-   An existing valid, approved certificate is reused without a new trust prompt.
-3. Select periodic mode and choose **Save & start**. Windows asks for administrator
-   access to run the narrow hostname-routing watchdog. The app itself stays
-   unelevated.
-4. Wait until the proxy is ready, then launch Rocket League. If the game was
-   already connected before routing started, close and relaunch it.
+The only startup entry is the optional tray app. Change it in Settings or the
+tray menu. Windows Startup Apps can override it. Uninstall through Windows
+**Installed apps**; the archive, credentials and settings are retained.
 
-The proxy listens only on loopback port 443. A nonce-protected control endpoint
-and public local revocation list use port 47639. The proxy verifies the real
-upstream certificate, forwards game messages, and consumes only responses to its
-own Match History requests. It does not persist or log game session headers,
-raw frames, signed download URLs, or response bodies.
+## Development
 
-The elevated watchdog adds only its marked hosts block while the game and proxy
-are ready. It removes that block on game exit or proxy failure. A fixed startup
-recovery task also removes the owned block after a reboot. If both proxy and
-watchdog are forcibly killed, reboot or use the cleanup command below. Other
-hosts entries are preserved; conflicting or malformed mappings are rejected.
-
-Close Rocket League before exiting RL Uploader while proxy connections are
-active. The GUI blocks that exit to preserve the game connection; minimize it
-instead. Pausing capture keeps the relay alive.
-
-## Ballchasing uploads
-
-Paste your API token from [ballchasing](https://ballchasing.com/upload) into the
-masked field. It is encrypted with Windows DPAPI for your user. Choose Private,
-Unlisted or Public, then **Save & start**. Private is the default. Visibility is
-stored per queued replay; changing it affects new queued replays only.
-
-Uploads are sequential with a minimum three-second gap. `Retry-After` is honored
-(including date values). HTTP 429 without that header backs off for one hour;
-network/server failures use increasing retries. Account quotas can be tighter
-than request limits and are account-dependent. See the
-[ballchasing API documentation](https://ballchasing.com/doc/_api).
-
-Quota limits and upload failures never delete saved replays. Completed files are
-validated for container framing and archived atomically as SHA-256 filenames.
-Identical content is uploaded once across renames and restarts. Downloaded files
-never overwrite different existing Demos files. Invalid/incomplete files stay
-untouched. Uploads always read the archive; source files are never deleted.
-
-## Commands and recovery
+Install the Rust MSVC toolchain, Visual Studio C++ Build Tools and Windows SDK.
+The project-local toolchain is used when available. `Cargo.lock` and
+`rust-toolchain.toml` pin the build inputs.
 
 ```powershell
-# Read-only diagnostics: prints presence/validity, never tokens.
-.\target\release\rl-uploader.exe --data-dir .local --doctor
-
-# Start minimized or without the desktop window.
-.\target\release\rl-uploader.exe --data-dir .local --minimized
-.\target\release\rl-uploader.exe --data-dir .local --headless
-
-# Open paused for inspection without starting capture/upload/proxy routing.
-.\target\release\rl-uploader.exe --data-dir .local --paused
-
-# Prepare local certificate files without installing trust.
-.\target\release\rl-uploader.exe --data-dir .local --prepare-proxy
-
-# Install only the exact certificate whose SHA-1 you reviewed above.
-.\target\release\rl-uploader.exe --data-dir .local --install-proxy --fingerprint REVIEWED_SHA1
-
-# Close the game and app first; remove only this certificate or owned hosts block.
-.\target\release\rl-uploader.exe --data-dir .local --remove-proxy-trust
-.\target\release\rl-uploader.exe --data-dir .local --cleanup-route
+.\Build.ps1 -Check
 ```
 
-`--headless` stops capture on Ctrl+C, then waits for the game to close before
-releasing an active proxy connection. `--help` lists options. Keep `.local`
-backed up: it contains `settings.json`, `queue.sqlite3`, `archive/`, encrypted
-account credentials and `proxy/`. Do not commit or share its contents. DPAPI
-credentials cannot be decrypted by another Windows user or machine.
+This checks formatting, runs Clippy and tests, builds the release executable,
+and creates the per-user MSI. Packaging uses the build-only WiX 4.0.6 tool under
+`.tools\wix`. Rust, Python, WiX and .NET are not needed on end-user machines.
+The development executable is unsigned; release signing requires a publisher's
+code-signing certificate. Do not use antivirus exclusions.
 
-## Validation status
+Useful executable options:
 
-Rust regression tests and loopback TLS tests cover persistence, downloads,
-upload retries, process guards, schedule selection and session relay behavior.
-Read-only checks confirm compatibility with the existing Python credentials and
-approved proxy key. The earlier Python capture downloaded 20 real replays.
+```text
+--tray                  Start quietly in the system tray
+--paused                Start with capture and uploads paused
+--headless              Run without a graphical window
+--doctor                Read-only configuration diagnostics
+--quit                  Ask the running app to exit
+--data-dir PATH         Use a separate profile
+--migrate-from PATH     Copy a profile into an empty data directory
+```
 
-A live Rocket League capture cycle using the Rust build, especially periodic
-proxy mode, still needs validation. Protocol constants target the locally
-installed October 2026 Rocket League build; future game updates may require
-adapter changes. These limitations are not a claim of EAC approval.
+`Start RL Uploader.cmd` opens the installed app, or the local release against
+`.local` when the app is not installed. Migration preserves replay archives,
+credentials, and a consistent SQLite snapshot; it never merges existing profiles.
+
+`Measure-Background.ps1` samples the installed tray's CPU and memory. Close the
+settings window before measuring; its disposable graphics process is separate.
+Tests cover after-session timing, game-state guards, cancellation, archive
+integrity, queue recovery, optional uploads, settings migration and local HTTP
+uploads. See [implementation notes](docs/RUST_PORT.md).

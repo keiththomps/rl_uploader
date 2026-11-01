@@ -1,7 +1,5 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
-use rl_uploader::{
-    Error, Result, config::Settings, platform, proxy::CaptureProxy, proxy_certs, worker::Worker,
-};
+use rl_uploader::{Error, Result, config::Settings, platform, worker::Worker};
 use std::{
     path::PathBuf,
     sync::{
@@ -35,7 +33,12 @@ fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     if let Err(e) = run() {
         eprintln!("{}", e.message);
-        if !std::env::args().any(|s| s == "--headless" || s == "--doctor" || s == "--help") {
+        if !std::env::args().any(|s| {
+            matches!(
+                s.as_str(),
+                "--headless" | "--doctor" | "--help" | "--install" | "--quit"
+            )
+        }) {
             rfd::MessageDialog::new()
                 .set_title("RL Uploader")
                 .set_description(&e.message)
@@ -48,10 +51,11 @@ fn main() {
 fn run() -> Result<()> {
     let mut dir = platform::data_dir();
     let mut headless = false;
-    let mut minimized = false;
+    let mut tray_only = false;
+    let mut ui_child = false;
     let mut paused = false;
     let mut action = String::new();
-    let mut fingerprint = String::new();
+    let mut migrate_from = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -62,22 +66,36 @@ fn run() -> Result<()> {
                 )
             }
             "--headless" => headless = true,
-            "--minimized" => minimized = true,
+            "--minimized" | "--tray" => tray_only = true,
+            "--ui-child" => ui_child = true,
+            "--migrate-from" => {
+                migrate_from =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        Error::new("--migrate-from needs a data folder.")
+                    })?))
+            }
             "--paused" => paused = true,
-            "--doctor"
-            | "--prepare-proxy"
-            | "--install-proxy"
-            | "--remove-proxy-trust"
-            | "--cleanup-route" => {
+            "--doctor" => {
                 if !action.is_empty() {
                     return Err(Error::new("Choose only one maintenance action."));
                 }
                 action = arg;
             }
-            "--fingerprint" => fingerprint = args.next().unwrap_or_default(),
+            "--install" | "--uninstall" => {
+                return Err(Error::new(
+                    "Install or remove RL Uploader with RLUploader-Setup.msi or Windows Installed apps.",
+                ));
+            }
+            "--quit" => {
+                if !action.is_empty() {
+                    return Err(Error::new("Choose only one maintenance action."));
+                }
+                action = arg;
+            }
             "--help" | "-h" => {
                 println!(
-                    "RL Uploader 0.4 (Rust)\n  --data-dir PATH     Settings, DPAPI credentials and archive location\n  --headless          Run without the desktop window\n  --minimized         Start the window minimized\n  --paused            Open without starting capture or uploads\n  --doctor            Read-only configuration diagnostics\n  --prepare-proxy     Generate local proxy certificate (does not trust it)\n  --install-proxy --fingerprint SHA1   Install the reviewed certificate\n  --remove-proxy-trust                Remove this proxy certificate\n  --cleanup-route                    Ask Windows to remove our hosts block"
+                    "RL Uploader {}\n  --data-dir PATH     Settings, credentials and archive location\n  --tray              Start in the system tray\n  --headless          Run without a window or tray icon\n  --paused            Start with saving and uploads paused\n  --migrate-from PATH Import an existing profile into an empty data folder\n  --quit              Exit the running tray app\n  --doctor            Read-only configuration diagnostics",
+                    env!("CARGO_PKG_VERSION")
                 );
                 return Ok(());
             }
@@ -85,9 +103,19 @@ fn run() -> Result<()> {
         }
     }
     dir = std::path::absolute(dir).map_err(rl_uploader::io_error)?;
+    if action == "--quit" {
+        return rl_uploader::desktop::request_exit(&dir);
+    }
+    if let Some(source) = migrate_from {
+        if !action.is_empty() || ui_child {
+            return Err(Error::new(
+                "Import a profile separately from maintenance actions.",
+            ));
+        }
+        rl_uploader::install::migrate_data(&source, &dir)?;
+    }
     if action == "--doctor" {
         let settings = Settings::load(&dir)?;
-        let cert = proxy_certs::manifest(&dir).ok();
         let epic_readable = std::fs::read(dir.join("epic.dpapi"))
             .ok()
             .and_then(|v| platform::dpapi(&v, false).ok())
@@ -97,66 +125,39 @@ fn run() -> Result<()> {
                     && v["refresh_token"].as_str().is_some_and(|t| !t.is_empty())
             });
         let diagnostics = serde_json::json!({
-            "version":"0.4.0-rust", "data_dir":dir, "replay_dir":settings.replay_dir,
+            "version":env!("CARGO_PKG_VERSION"), "data_dir":dir, "replay_dir":settings.replay_dir,
+            "installed":rl_uploader::install::installed(),"startup_enabled":rl_uploader::install::startup_enabled(),
             "replay_folder_exists":settings.folder().is_dir(), "game_running":platform::game_running(),
-            "cloud_capture":settings.cloud_capture, "capture_mode":settings.capture_mode,
-            "capture_interval_minutes":settings.capture_interval_minutes,
+            "cloud_capture":settings.cloud_capture, "uploads_enabled":settings.uploads_enabled,
             "epic_connected":dir.join("epic.dpapi").exists(), "epic_credentials_readable":epic_readable,
             "ballchasing_token_saved":dir.join("token.dpapi").exists(),
             "ballchasing_token_readable":platform::load_token(&dir).is_ok_and(|v|!v.is_empty()),
-            "proxy_trusted":proxy_certs::trusted(&dir), "proxy_certificate":cert,
-            "proxy_key_readable":proxy_certs::server_config(&dir).is_ok(),
             "game_memory_access":false, "game_file_patching":false
         });
         println!("{}", serde_json::to_string_pretty(&diagnostics).unwrap());
         return Ok(());
     }
-    let _lock = platform::InstanceLock::acquire(&dir)?;
-    match action.as_str() {
-        "--prepare-proxy" => {
-            if platform::game_running() != Some(false) {
-                return Err(Error::new(
-                    "Close Rocket League before preparing the proxy.",
-                ));
-            }
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&proxy_certs::prepare(&dir)?).unwrap()
-            );
-            return Ok(());
-        }
-        "--install-proxy" => {
-            if fingerprint.is_empty() {
-                return Err(Error::new(
-                    "Review --prepare-proxy, then provide --fingerprint SHA1 to install that exact certificate.",
-                ));
-            }
-            proxy_certs::install(&dir, &fingerprint)?;
-            println!("Proxy certificate installed.");
-            return Ok(());
-        }
-        "--remove-proxy-trust" => {
-            proxy_certs::remove_trust(&dir)?;
-            println!("Proxy certificate removed.");
-            return Ok(());
-        }
-        "--cleanup-route" => {
-            if platform::game_running() != Some(false) {
-                return Err(Error::new(
-                    "Close Rocket League before removing its proxy route.",
-                ));
-            }
-            rl_uploader::proxy::elevate_script("-CleanupOnly")?;
-            return Ok(());
-        }
-        _ => (),
+    if ui_child {
+        return rl_uploader::gui::run(dir.clone(), Settings::load(&dir)?);
     }
+    if action.is_empty() && !headless && rl_uploader::desktop::activate(&dir, !tray_only) {
+        return Ok(());
+    }
+    let _lock = match platform::InstanceLock::acquire(&dir) {
+        Ok(lock) => lock,
+        Err(e) => {
+            if action.is_empty() && !headless && rl_uploader::desktop::activate(&dir, !tray_only) {
+                return Ok(());
+            }
+            return Err(e);
+        }
+    };
     let settings = Settings::load(&dir)?;
+    settings.save(&dir)?; // Normalize older profiles to the current settings schema.
     if !headless {
-        return rl_uploader::gui::run(dir, settings, minimized, paused);
+        return rl_uploader::desktop::run(dir, settings, tray_only, paused);
     }
-    let proxy = CaptureProxy::new(&dir);
-    let mut worker = Worker::start(&dir, settings, proxy.clone(), paused);
+    let mut worker = Worker::start(&dir, settings, paused);
     let quit = Arc::new(AtomicBool::new(false));
     let quit_signal = quit.clone();
     let cancel = worker.cancel.clone();
@@ -176,12 +177,5 @@ fn run() -> Result<()> {
         std::thread::sleep(Duration::from_millis(500));
     }
     worker.stop();
-    if !proxy.close_allowed() {
-        println!("Waiting for Rocket League to close before releasing its proxy connection.");
-    }
-    while !proxy.close_allowed() {
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    proxy.close();
     Ok(())
 }

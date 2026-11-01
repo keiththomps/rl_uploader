@@ -141,135 +141,122 @@ impl History for EpicAuth {
 pub struct CloudCapture {
     pub stop: Arc<AtomicBool>,
     pub auth: EpicAuth,
-    pub live: Option<Arc<dyn History>>,
     pub message: String,
     pub running: Arc<dyn Fn() -> Option<bool> + Send + Sync>,
     pub offline: Arc<dyn History>,
     pub downloader: fn(&str, &Guard) -> Result<Vec<u8>>,
     idle_since: Option<f64>,
     was_running: Option<bool>,
+    completed: bool,
 }
 impl CloudCapture {
-    pub fn new(dir: &Path, stop: Arc<AtomicBool>, live: Option<Arc<dyn History>>) -> Self {
+    pub fn check_interval(&self, now: f64) -> f64 {
+        if self.was_running == Some(false)
+            && self.idle_since.is_some_and(|since| now - since >= 30.0)
+        {
+            15.0
+        } else {
+            5.0
+        }
+    }
+    pub fn new(dir: &Path, stop: Arc<AtomicBool>) -> Self {
         let auth = EpicAuth::new(dir);
         Self {
             offline: Arc::new(auth.clone()),
             auth,
             stop,
-            live,
-            message: "Automatic capture is off.".into(),
+            message: "Waiting for the next replay check.".into(),
             running: Arc::new(platform::game_running),
             downloader: download,
             idle_since: None,
             was_running: None,
+            completed: false,
         }
     }
     pub fn reconnect(engine: &Engine) -> Result<()> {
-        for prefix in ["cloud", "live"] {
-            engine.state.set(&format!("{prefix}_blocked"), "")?;
-            engine.state.set(&format!("{prefix}_next"), 0)?;
-            engine.state.set(&format!("{prefix}_attempts"), 0)?;
-        }
-        Ok(())
+        engine.state.set("cloud_blocked", "")?;
+        engine.state.set("cloud_next", 0)?;
+        engine.state.set("cloud_attempts", 0)
+    }
+    pub fn resume(&mut self) {
+        // A whole game session may have happened while the worker was paused.
+        self.completed = false;
+        self.idle_since = None;
+        self.was_running = None;
     }
     pub fn tick(&mut self, engine: &mut Engine, now: f64) -> Result<()> {
         if !engine.settings.cloud_capture {
-            self.message = "Automatic capture is off.".into();
+            self.message = "Automatic replay saving is off.".into();
             return Ok(());
         }
         let Some(running) = (self.running)() else {
             self.idle_since = None;
-            self.message = "Cannot verify Rocket League's state. Capture deferred.".into();
+            self.completed = false;
+            self.message = "Cannot verify Rocket League's state. Saving will wait.".into();
             return Ok(());
         };
-        let (client, prefix) = if running {
+        if running {
             self.idle_since = None;
+            self.completed = false;
             if self.was_running != Some(true) {
                 engine.state.set("cloud_next", 0)?;
-                engine.state.set("live_next", 0)?;
             }
             self.was_running = Some(true);
-            if engine.settings.capture_mode == "after_session" {
-                self.message = "Waiting for Rocket League to close.".into();
-                return Ok(());
-            }
-            let Some(live) = self.live.as_ref() else {
-                self.message = "Periodic capture needs a captured game session. No second login will be created.".into();
-                return Ok(());
-            };
-            (live.clone(), "live")
-        } else {
-            if self.was_running == Some(true) {
-                engine.state.set("cloud_next", 0)?;
-            }
-            self.was_running = Some(false);
-            if !self.auth.connected() {
-                self.message = "Connect Epic to enable automatic replay saving after play.".into();
-                return Ok(());
-            }
-            if now - *self.idle_since.get_or_insert(now) < 30.0 {
-                self.message =
-                    "Rocket League is closed. Waiting 30 seconds before cloud capture.".into();
-                return Ok(());
-            }
-            (self.offline.clone(), "cloud")
-        };
-        let blocked = engine.state.get(&format!("{prefix}_blocked"))?;
+            self.message = "Waiting for Rocket League to close.".into();
+            return Ok(());
+        }
+        if self.was_running == Some(true) {
+            engine.state.set("cloud_next", 0)?;
+        }
+        self.was_running = Some(false);
+        if !self.auth.connected() {
+            self.message = "Connect Epic in Settings to save replays automatically.".into();
+            return Ok(());
+        }
+        if self.completed {
+            self.message = engine.state.get("cloud_message")?;
+            return Ok(());
+        }
+        if now - *self.idle_since.get_or_insert(now) < 30.0 {
+            self.message = "Rocket League is closed. Saving starts after 30 seconds.".into();
+            return Ok(());
+        }
+        let blocked = engine.state.get("cloud_blocked")?;
         if !blocked.is_empty() {
             self.message = blocked;
             return Ok(());
         }
-        if now < engine.state.number(&format!("{prefix}_next"))? {
-            self.message = engine.state.get(&format!("{prefix}_message"))?;
+        if now < engine.state.number("cloud_next")? {
+            self.message = engine.state.get("cloud_message")?;
             return Ok(());
         }
         let stop = self.stop.clone();
         let process = self.running.clone();
         let guard: Guard =
-            Arc::new(move || !stop.load(Ordering::Relaxed) && process() == Some(running));
-        let pass = self.capture(engine, client.as_ref(), &guard, now);
-        match pass {
+            Arc::new(move || !stop.load(Ordering::Relaxed) && process() == Some(false));
+        match self.capture(engine, self.offline.as_ref(), &guard, now) {
             Ok((saved, total)) => {
-                self.message = format!(
-                    "{} capture complete: {saved} replay(s) saved; {total} in recent history.",
-                    if running { "Live session" } else { "Cloud" }
-                );
-                if total >= 20 {
-                    self.message.push_str(
-                        " History is at the 20-match limit; earlier matches may be missing.",
-                    );
-                }
-                engine.state.set(&format!("{prefix}_attempts"), 0)?;
-                engine.state.set(
-                    &format!("{prefix}_next"),
-                    now + f64::from(engine.settings.capture_interval_minutes) * 60.0,
-                )?;
+                self.message =
+                    format!("Saved {saved} new replay(s). Checked {total} recent matches.");
+                self.completed = true;
+                engine.state.set("cloud_attempts", 0)?;
+                engine.state.set("cloud_next", 0)?;
+                engine.state.set("cloud_last_success", now)?;
             }
             Err(e) => {
                 self.message = e.message;
                 if e.permanent {
-                    engine
-                        .state
-                        .set(&format!("{prefix}_blocked"), &self.message)?;
+                    engine.state.set("cloud_blocked", &self.message)?;
                 } else {
-                    let attempts = (engine.state.number(&format!("{prefix}_attempts"))? as u32)
-                        .saturating_add(1);
-                    let maximum = if running {
-                        engine.settings.capture_interval_minutes * 60
-                    } else {
-                        3600
-                    };
-                    let delay = (60 * 2u32.pow(attempts.saturating_sub(1).min(6))).min(maximum);
-                    engine.state.set(&format!("{prefix}_attempts"), attempts)?;
-                    engine
-                        .state
-                        .set(&format!("{prefix}_next"), now + f64::from(delay))?;
+                    let attempts =
+                        (engine.state.number("cloud_attempts")? as u32).saturating_add(1);
+                    let delay = (60 * 2u32.pow(attempts.saturating_sub(1).min(6))).min(3600);
+                    engine.state.set("cloud_attempts", attempts)?;
+                    engine.state.set("cloud_next", now + f64::from(delay))?;
                 }
             }
         }
-        engine
-            .state
-            .set(&format!("{prefix}_message"), &self.message)
+        engine.state.set("cloud_message", &self.message)
     }
     fn capture(
         &self,

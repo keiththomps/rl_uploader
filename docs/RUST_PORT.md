@@ -1,77 +1,109 @@
-# Rust port
+# Rust implementation notes
 
-The Python baseline is commit `bf37e53` on `main`. Work on the native app lives on
-`port/rust`. There are no calls to Python, Hebnix, OpenSSL executables, or another
-application's credential store in the Rust runtime.
+The main branch contains the maintained Rust-only app, version 0.9.3. The original
+Python baseline remains in git history at `bf37e53`; it is no longer shipped or
+retained as a second executable implementation.
 
-The original Python source and its tests remain on this branch as a comparison
-reference until live Rust game-session validation is complete. All three app
-launchers now use the Rust executable. `run.pyw` is the legacy Python entry point.
+## Runtime
 
-## Implementation map
+The native Windows tray owns the worker, directory notification, encrypted
+credentials and durable SQLite queue. It creates a separate egui/eframe settings
+process only when the window is open, communicating over inherited private
+pipes. Closing the window releases its graphics resources. The tray sleeps
+between process-state checks and file notifications.
 
-| Component | Rust implementation |
-| --- | --- |
-| Desktop and persistent Epic sign-in dialog | `src/gui.rs`, egui/eframe |
-| Worker and pause/resume | `src/worker.rs` |
-| Replay discovery, validation, archive, upload retry | `src/engine.rs` |
-| SQLite queue and migration compatibility | `src/state.rs` |
-| Ballchasing HTTP client | `src/api.rs` |
-| Epic device flow and offline Match History | `src/protocol.rs` |
-| Capture schedules and replay downloads | `src/cloud.rs` |
-| Existing-session TLS proxy | `src/proxy.rs`, `src/proxy_wire.rs` |
-| Certificate provisioning and DPAPI leaf key | `src/proxy_certs.rs` |
-| Process names, Windows Documents, locks, DPAPI | `src/platform.rs` |
-| CLI / headless / diagnostics | `src/main.rs` |
+The cloud client uses an explicitly connected Epic account only after the game
+has stayed closed for 30 seconds. Saving is independent of ballchasing uploads.
+A completed history check waits for a new game session; incomplete downloads and
+transient failures use backoff. The worker defers local file processing and
+uploads while the game is open or its process state is unknown. Upload bodies
+check a cancellation guard between chunks; network-buffered bytes can still drain.
 
-`assets/proxy_route.ps1` is the original Windows routing/recovery helper, embedded
-in the executable at compile time. It is invoked as fixed encoded PowerShell,
-without extracting an executable script into the user's data directory. Its
-startup recovery task also contains only the fixed cleanup code. This small OS
-integration helper remains PowerShell; all application logic, networking, proxy
-relay, credential handling, and UI are Rust.
+## Removed implementation
 
-## Compatibility contract
+The experimental periodic capture path has been deleted, including the local
+HTTP/WebSocket relay, session-header capture, configuration-response rewriting,
+certificate generation/trust commands, hosts routing, elevated helper, recovery
+service, cache recovery startup command, secondary MSI, Python implementation,
+and their dedicated tests and dependencies. No dead feature flag or hidden UI
+remains. Old capture-mode/interval settings are ignored and removed on the next
+normal settings save; active preferences and encrypted credentials are retained.
+Profile migration copies only settings, credentials, archive and queue.
 
-- `settings.json` keeps the same keys and defaults. Old settings default to
-  `after_session`, 15 minutes, and private uploads.
-- `queue.sqlite3` keeps the original tables, columns, and metadata keys. There is
-  no destructive schema migration. Interrupted uploads return to the queue.
-- `token.dpapi`, `epic.dpapi`, and `proxy/leaf-key.dpapi` use the same Windows
-  current-user DPAPI format. Reconnecting accounts is not required merely to port.
-- Archive filenames remain the SHA-256 digest followed by `.replay`.
-- The Windows lock overlaps the Python app's first-byte lock; both implementations
-  cannot own the same data directory simultaneously.
-- Existing proxy certificates are reused. The port does not silently install or
-  replace trusted certificates. New Rust-generated certificates use ECDSA; the
-  original RSA certificate and encrypted key are also supported.
-- Build tools, caches, credentials, certificates and replay data remain ignored by Git.
+The protocol code that remains creates its own after-session login and reads
+that account's Match History. It does not inspect game logs or game memory and
+has no local listening sockets. This integration is unofficial; approval from
+Epic/EAC remains unverified.
 
-## Validation and remaining field checks
+## Window UX
 
-Rust tests cover replay framing and settlement, initial exclusion and import,
-archive repair/deduplication, restart recovery, private/unlisted queue persistence,
-upload auth failures, quota backoff, multipart requests and denied redirects,
-download URL restrictions and collision handling, capture transport selection,
-15/30-minute timing, unknown process state, guarded authentication, failed replay
-isolation, WebSocket framing/fragmentation, private response consumption, late
-responses, session replacement/disconnection, constrained certificates, DPAPI,
-TLS hostname enforcement, large-frame backpressure, and pure hosts transformations.
-Tests use synthetic tokens and loopback services. They do not install trust, change
-hosts, register tasks, or authenticate to a live account.
+The window uses the Windows Segoe UI font when available, system light/dark
+appearance, native window chrome, compact controls and separate Activity/Settings
+pages. Configuration status uses text as well as color. Activity describes saved
+settings; edits are drafts until Apply. Revert restores them, and closing with
+unsaved changes offers Apply, Discard, or Cancel. Applying settings preserves
+pause. Account sign-in saves immediately and its dialog stays open on expiry.
 
-Read-only diagnostics have verified the existing Python settings, both encrypted
-account credentials, and the previously approved RSA proxy certificate/key.
-The 54 Rust tests pass, along with `cargo fmt --check` and Clippy with warnings
-denied. A temporary copy of the Python queue preserved all 20 uploaded jobs,
-including visibility and replay IDs, when opened by Rust. Cross-process locking
-was checked in both directions against Python's `msvcrt.locking`.
+Ballchasing uploads have a separate on/off switch. The token field distinguishes
+saved credentials from an unapplied replacement; testing the connection does not
+save a replacement. Upload visibility applies to newly queued files. The UI does
+not label a merely saved token as service-verified. Missing folders, missing
+accounts and persistent service failures are surfaced separately.
 
-The release desktop was visually inspected in an isolated paused profile and
-resume/close were exercised. The release executable's import table contains only
-Windows system DLLs; it does not need a separate Visual C++ runtime installation.
+## Upgrade and verification
 
-The earlier Python after-session path downloaded 20 real replays successfully.
-That result does **not** establish live compatibility of the Rust adapter or of
-periodic proxy mode. A real game launch/play/exit capture cycle remains a field
-test. Epic/EAC approval of this unofficial integration has not been verified.
+On October 31, 2026, a real after-session cycle saved and uploaded a newly played
+match about 33 seconds after Rocket League closed. It became the 21st verified
+archive/upload record. No network interception was active during that match.
+A packet-loss indicator reported by the user could not be attributed from the
+available records; the app does not collect gameplay packet telemetry.
+
+The 0.8.3 upload-guard regressions remain. The current suite also covers removal
+of obsolete settings, once-per-session capture, interrupted transfer recovery,
+DPAPI compatibility, durable archive migration and the directory watcher.
+Synthetic checks do not establish Epic/EAC approval or eliminate all process
+launch races. Production credentials and signed download URLs must never be
+logged, committed, or copied into test fixtures.
+
+Version 0.9.2 passed formatting, Clippy with warnings denied, and 50 tests.
+The added regressions cover preserving pause when applying settings, disabled
+uploads retaining their queue, and catching up after a session missed while
+paused or while process state was unknown. The real Windows UI was reviewed in
+an isolated paused profile and with the installed user's saved configuration.
+Unsaved-change feedback, close confirmation and Apply preserving pause were
+verified. A stale paused-state label was corrected during that review.
+
+The final executable and MSI passed normal Defender scans with zero new
+detections. The per-user upgrade preserved Epic and ballchasing credentials,
+after-session saving, upload preference, startup and all 21 archive SHA-256s.
+MSI inspection confirmed only the app, README and license notices, and one
+optional tray startup entry. No recovery startup entry or nested routing MSI
+remains. A 30.024-second idle tray sample measured 14.44 MiB working set,
+2.71 MiB private memory and 93.75 ms CPU (0.3123% of one core).
+
+On November 1, both retired roots were verified absent from the current user's
+trusted store after the user approved their deletion. The old certificate/key
+profiles and diagnostic were removed from the installed profile and the legacy
+workspace profile. Account credentials remained readable; all 29 current replay
+archives passed SHA-256 checks and all 29 had completed uploads. After-session
+saving, uploads and sign-in startup remain enabled.
+
+The separately installed routing component was removed through Programs and
+Features on November 1. Its Windows Installer registration, service, install
+directory, protocol registry key and helper process were verified absent.
+Both retired certificate roots, temporary hosts routes and the recovery startup
+entry are absent. The current app does not call or depend on the retired helper.
+
+The current app was also accidentally uninstalled during that cleanup. The
+verified 0.9.3 per-user MSI restored it successfully without recreating routing
+components. The installed executable matches the previously Defender-scanned
+build. Existing settings and both encrypted credentials remained readable;
+after-session saving, uploads and sign-in startup remain enabled. All 29 replay
+archives passed fresh SHA-256 checks and retained their completed upload records.
+
+The final UI-only 0.9.3 refinement keeps each page's scroll position separate
+and marks unapplied settings in the tab title. It passed formatting and Clippy;
+the prior 50-test runtime suite remains unchanged. Its executable and installer
+passed fresh Defender scans and the installed version was verified. After the
+November 1 reinstall, the app is running in the system tray with after-session
+saving and uploads enabled.

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="RL Uploader" Manufacturer="RL Uploader" Version="$(var.AppVersion)"
+           UpgradeCode="47D83B3E-6F24-4A16-A11C-F38CD38A1493" Scope="perUser" InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of RL Uploader is installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="AppIcon" SourceFile="$(var.AppExe)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="RLUploader">
+          <Component Id="AppFiles" Guid="BCBB8E8A-BF73-4C41-8275-82CA6DAA0118">
+            <File Id="AppExecutable" Source="$(var.AppExe)" Name="rl-uploader.exe" />
+            <File Source="$(var.ProjectRoot)\README.md" />
+            <File Source="$(var.ProjectRoot)\THIRD_PARTY_NOTICES.md" />
+            <File Source="$(var.ProjectRoot)\THIRD_PARTY_LICENSES.txt" />
+            <RegistryValue Root="HKCU" Key="Software\RLUploader" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" KeyPath="yes" />
+            <RegistryValue Root="HKCU" Key="Software\RLUploader" Name="Version" Value="$(var.AppVersion)" Type="string" />
+            <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="RL Uploader"
+                      Target="[#AppExecutable]" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon"
+                      Description="Save Rocket League replays and optionally upload to ballchasing" />
+            <RemoveFile Id="LegacyReceipt" Name="installed.json" On="install" />
+            <RemoveFile Id="LegacyIcon" Name="icon.ico" On="install" />
+            <RemoveRegistryKey Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\RLUploader" Action="removeOnInstall" />
+            <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+            <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+          </Component>
+          <Component Id="Startup" Guid="3F354F55-82D6-42D5-B9D9-E450D2104C40">
+            <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="RL Uploader"
+                           Value="&quot;[#AppExecutable]&quot; --tray" Type="string" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <Feature Id="Application" Title="RL Uploader" Level="1">
+      <ComponentRef Id="AppFiles" />
+    </Feature>
+    <Feature Id="StartWithWindows" Title="Start at Windows sign-in" Level="1">
+      <ComponentRef Id="Startup" />
+    </Feature>
+  </Package>
+</Wix>

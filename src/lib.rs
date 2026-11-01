@@ -1,14 +1,16 @@
 pub mod api;
 pub mod cloud;
 pub mod config;
+pub mod desktop;
 pub mod engine;
 pub mod gui;
+mod icon;
+pub mod install;
+pub mod ipc;
 pub mod platform;
 pub mod protocol;
-pub mod proxy;
-pub mod proxy_certs;
-pub mod proxy_wire;
 pub mod state;
+pub mod watch;
 pub mod worker;
 
 use std::{

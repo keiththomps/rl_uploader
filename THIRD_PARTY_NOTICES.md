@@ -28,13 +28,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The retained Python reference uses `websocket-client` (Apache 2.0) and
-`cryptography` (Apache 2.0 or BSD). Their licenses accompany the development
-installations under `.vendor/`; neither is used by the Rust executable.
-
 The Rust executable uses egui/eframe, reqwest, rusqlite/SQLite, rustls, ring,
-rcgen, tungstenite, Windows bindings, and the dependencies recorded in
-`Cargo.lock`. Package versions, license declarations, and bundled license texts
-are collected in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt). Include
-both notice files when distributing the executable. The compile-time embedded
-PowerShell routing helper is this project's own implementation.
+tungstenite, Windows bindings, and the dependencies recorded in `Cargo.lock`.
+Package versions, license declarations, and bundled license texts are collected
+in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt). Include both notice files
+when distributing the executable. Segoe UI is loaded from the user's Windows
+installation; no Microsoft font is bundled with the app.

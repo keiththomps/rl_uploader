@@ -70,6 +70,9 @@ pub struct Engine {
     include_first: bool,
 }
 impl Engine {
+    pub fn settling(&self) -> bool {
+        !self.pending.is_empty()
+    }
     pub fn new(dir: &Path, settings: Settings, client: Option<Box<dyn Upload>>) -> Result<Self> {
         settings.validate()?;
         let folder = settings.folder();
@@ -227,7 +230,10 @@ impl Engine {
         self.state.update(job)?;
         self.state.set("cooldown", now + delay)
     }
-    pub fn upload_one(&mut self, now: f64) -> Result<bool> {
+    pub fn upload_one(&mut self, now: f64, guard: &crate::protocol::Guard) -> Result<bool> {
+        if !guard() {
+            return Ok(false);
+        }
         let Some(client) = self.client.as_ref() else {
             return Ok(false);
         };
@@ -247,13 +253,27 @@ impl Engine {
                 return Ok(true);
             }
         };
+        if !guard() {
+            return Ok(false);
+        }
+        let previous_attempts = job.attempts;
         job.attempts = job.attempts.saturating_add(1);
         job.status = "uploading".into();
         job.message = "Uploading".into();
         self.state.update(&job)?;
         let delay = (5 * 2u32.pow(job.attempts.saturating_sub(1).min(10))).min(3600) as f64;
-        let response = match client.upload(data, &job.visibility) {
+        let response = match client.upload(data, &job.visibility, guard) {
             Ok(v) => v,
+            Err(_) if !guard() => {
+                job.status = "queued".into();
+                job.attempts = previous_attempts;
+                job.next_try = 0.0;
+                job.message =
+                    "Transfer paused. Waiting for Rocket League to close or capture to resume."
+                        .into();
+                self.state.update(&job)?;
+                return Ok(true);
+            }
             Err(_) => {
                 self.retry(
                     &mut job,

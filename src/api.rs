@@ -1,11 +1,14 @@
-use crate::{Error, Result, net_error};
+use crate::{
+    Error, Result, net_error,
+    protocol::{Guard, check},
+};
 use reqwest::{
     blocking::{Client, Response, multipart},
     header::HeaderMap,
 };
 use serde_json::Value;
 use std::{
-    io::Read,
+    io::{self, Cursor, Read},
     time::{Duration, UNIX_EPOCH},
 };
 use zeroize::Zeroizing;
@@ -15,7 +18,7 @@ pub fn client(timeout: u64) -> Result<Client> {
         .timeout(Duration::from_secs(timeout))
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
-        .user_agent("RLUploader/0.4")
+        .user_agent(concat!("RLUploader/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(net_error)
 }
@@ -70,7 +73,22 @@ impl UploadResponse {
     }
 }
 pub trait Upload: Send {
-    fn upload(&self, data: Vec<u8>, visibility: &str) -> Result<UploadResponse>;
+    fn upload(&self, data: Vec<u8>, visibility: &str, guard: &Guard) -> Result<UploadResponse>;
+}
+struct GuardedReplay {
+    data: Cursor<Vec<u8>>,
+    guard: Guard,
+}
+impl Read for GuardedReplay {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if !(self.guard)() {
+            return Err(io::Error::other(
+                "Replay transfer deferred until the game closes.",
+            ));
+        }
+        let length = buffer.len().min(64 * 1024);
+        self.data.read(&mut buffer[..length])
+    }
 }
 pub struct Ballchasing {
     client: Client,
@@ -107,14 +125,23 @@ impl Ballchasing {
     }
 }
 impl Upload for Ballchasing {
-    fn upload(&self, data: Vec<u8>, visibility: &str) -> Result<UploadResponse> {
+    fn upload(&self, data: Vec<u8>, visibility: &str, guard: &Guard) -> Result<UploadResponse> {
+        check(guard)?;
+        let length = data.len() as u64;
         let form = multipart::Form::new().part(
             "file",
-            multipart::Part::bytes(data)
-                .file_name("replay.replay")
-                .mime_str("application/octet-stream")
-                .map_err(net_error)?,
+            multipart::Part::reader_with_length(
+                GuardedReplay {
+                    data: Cursor::new(data),
+                    guard: guard.clone(),
+                },
+                length,
+            )
+            .file_name("replay.replay")
+            .mime_str("application/octet-stream")
+            .map_err(net_error)?,
         );
+        check(guard)?;
         let r = self
             .client
             .post(format!("{}/v2/upload", self.root))
